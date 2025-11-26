@@ -15,13 +15,19 @@ def save_high_funding_futures(filename="high_funding_futures.json"):
         # Фильтруем контракты с фандингом выше 0.00009
         high_funding_contracts = []
         for contract in data['data']:
-            funding_rate = float(contract['fundingRate'])
-            if funding_rate > 0.00009:
-                high_funding_contracts.append({
-                    'symbol': contract['symbol'],
-                    'price': contract['lastPrice'],
-                    'fundingRate': contract['fundingRate']
-                })
+            # Проверяем наличие поля fundingRate и что оно не None
+            if 'fundingRate' in contract and contract['fundingRate'] is not None:
+                try:
+                    funding_rate = float(contract['fundingRate'])
+                    if funding_rate > 0.00009:
+                        high_funding_contracts.append({
+                            'symbol': contract['symbol'],
+                            'price': contract['lastPrice'],
+                            'fundingRate': contract['fundingRate']
+                        })
+                except (ValueError, TypeError):
+                    # Пропускаем контракты с некорректным fundingRate
+                    continue
 
         # Создаем структуру для сохранения
         save_data = {
@@ -36,6 +42,7 @@ def save_high_funding_futures(filename="high_funding_futures.json"):
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
 
+        print(f"Найдено контрактов с высоким фандингом: {len(high_funding_contracts)}")
         return save_data
 
     except Exception as e:
