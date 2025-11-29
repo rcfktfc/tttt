@@ -33,6 +33,7 @@ class TradingBot:
     def __init__(self):
         self.monitored_tokens = self.load_monitored_tokens()
         self.user_states = {}  # Для хранения состояний пользователей
+        self.high_diff_notified = set()  # Для отслеживания уже уведомленных токенов с высокой разницей
 
     @staticmethod
     def load_monitored_tokens():
@@ -103,6 +104,77 @@ class TradingBot:
             print(f"Ошибка чтения файла: {e}")
             return []
 
+    def get_all_tokens_with_high_difference(self, threshold=7.0):
+        """Получает все токены с разницей цен выше указанного порога"""
+        try:
+            with open('price_comparison_results.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            high_diff_tokens = []
+            for token in data['data']:
+                if token['price_difference_percent'] > threshold:
+                    high_diff_tokens.append(token)
+            
+            return high_diff_tokens
+        except Exception as e:
+            print(f"Ошибка чтения файла при проверке высокой разницы: {e}")
+            return []
+
+    async def check_high_difference_alerts(self, threshold=7.0):
+        """Проверяет токены с разницей цен выше порога и отправляет уведомления"""
+        try:
+            # Получаем все токены с разницей выше порога
+            high_diff_tokens = self.get_all_tokens_with_high_difference(threshold)
+            
+            if not high_diff_tokens:
+                return
+            
+            # Получаем всех пользователей, которые отслеживают какие-либо токены
+            all_users = set(token['chat_id'] for token in self.monitored_tokens["tokens"])
+            
+            for token in high_diff_tokens:
+                symbol = token['symbol']
+                current_diff = token['price_difference_percent']
+                
+                # Создаем уникальный идентификатор для этого уведомления
+                notification_id = f"{symbol}_{current_diff:.1f}"
+                
+                # Проверяем, не отправляли ли мы уже это уведомление
+                if notification_id in self.high_diff_notified:
+                    continue
+                
+                # Генерируем ссылки
+                spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
+                futures_url = f"https://www.mexc.com/futures/{symbol}"
+                
+                message = (
+                    f"🚨 ВЫСОКАЯ РАЗНИЦА ЦЕН: {symbol}\n"
+                    f"📊 Разница: {current_diff:.2f}%\n"
+                    f"💰 Фьючерс: {token['future_price']}\n"
+                    f"💵 Спот: {token['spot_price']}\n"
+                    f"📈 Фандинг: {token['funding_rate']}\n"
+                    f"🔗 Ссылки: <a href='{spot_url}'>Спот</a> | <a href='{futures_url}'>Фьючерс</a>"
+                )
+                
+                # Отправляем уведомление всем пользователям
+                for chat_id in all_users:
+                    try:
+                        await bot.send_message(
+                            chat_id,
+                            message,
+                            parse_mode=ParseMode.HTML,
+                            disable_web_page_preview=True
+                        )
+                        print(f"Отправлено уведомление о высокой разнице для {symbol} пользователю {chat_id}")
+                    except Exception as e:
+                        print(f"Ошибка отправки уведомления пользователю {chat_id}: {e}")
+                
+                # Добавляем в список отправленных уведомлений
+                self.high_diff_notified.add(notification_id)
+                
+        except Exception as e:
+            print(f"Ошибка при проверке высокой разницы цен: {e}")
+
     async def check_price_alerts(self):
         if not self.monitored_tokens["tokens"]:
             return
@@ -123,25 +195,48 @@ class TradingBot:
                 if symbol in current_tokens:
                     current_diff = current_tokens[symbol]['price_difference_percent']
                     if current_diff <= 0.4:
+                        # Генерируем ссылки на спот и фьючерсы
+                        spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
+                        futures_url = f"https://www.mexc.com/futures/{symbol}"
+                        
                         message = (
                             f"⚠️ ВНИМАНИЕ: Разница цен для {symbol} упала до {current_diff:.2f}%\n"
                             f"Фандинг: {current_tokens[symbol]['funding_rate']}\n"
                             f"Фьючерс: {current_tokens[symbol]['future_price']}\n"
-                            f"Спот: {current_tokens[symbol]['spot_price']}"
+                            f"Спот: {current_tokens[symbol]['spot_price']}\n"
+                            f"Ссылки: <a href='{spot_url}'>Спот</a> | <a href='{futures_url}'>Фьючерс</a>"
                         )
                         try:
-                            await bot.send_message(chat_id, message)
+                            await bot.send_message(
+                                chat_id, 
+                                message,
+                                parse_mode=ParseMode.HTML,
+                                disable_web_page_preview=True
+                            )
                         except Exception as e:
                             print(f"Ошибка отправки: {e}")
                         tokens_to_remove.append(monitored_token)
                 else:
-                    message = f"❌ Токен {symbol} больше не имеет разницы цен > 0.4%"
+                    # Генерируем ссылки и для случая, когда токен пропал из списка
+                    spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
+                    futures_url = f"https://www.mexc.com/futures/{symbol}"
+                    
+                    message = (
+                        f"❌ Токен {symbol} больше не имеет разницы цен > 0.4%\n"
+                        f"Ссылки: <a href='{spot_url}'>Спот</a> | <a href='{futures_url}'>Фьючерс</a>"
+                    )
                     try:
-                        await bot.send_message(chat_id, message)
+                        await bot.send_message(
+                            chat_id, 
+                            message,
+                            parse_mode=ParseMode.HTML,
+                            disable_web_page_preview=True
+                        )
                     except Exception as e:
                         print(f"Ошибка отправки: {e}")
                     tokens_to_remove.append(monitored_token)
 
+            # Удаляем обработанные токены
             for token in tokens_to_remove:
                 self.monitored_tokens["tokens"].remove(token)
 
@@ -368,8 +463,15 @@ async def back_to_main(message: Message):
 async def periodic_tasks():
     while True:
         try:
+            # Запускаем скрипты для обновления данных
             await trading_bot.run_scripts()
+            
+            # Проверяем стандартные алерты (падение ниже 0.4%)
             await trading_bot.check_price_alerts()
+            
+            # Проверяем высокую разницу (выше 7%)
+            await trading_bot.check_high_difference_alerts(7.0)
+            
         except Exception as e:
             print(f"Ошибка в периодических задачах: {e}")
         await asyncio.sleep(60)
