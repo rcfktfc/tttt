@@ -10,19 +10,23 @@ from aiogram.enums import ParseMode
 import signal
 import sys
 
+
 def signal_handler(sig, frame):
     print('Bot stopping...')
     # Ваш код для graceful shutdown
     sys.exit(0)
 
+
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
-
-# Ваш основной код бота
 
 # Конфигурация
 BOT_TOKEN = "8545358194:AAE_jf4VmyhKSZTIZbget8LCR_AQf21TJq0"
 MONITORED_FILE = "monitored_tokens.json"
+# ДОБАВЬТЕ ID ВАШЕГО ТЕЛЕГРАМ-КАНАЛА
+# Для публичного канала: @channel_username
+# Для приватного канала: -1001234567890 (цифровой ID)
+TELEGRAM_CHANNEL = "https://t.me/spread_mexc_spot_futures"  # ЗАМЕНИТЕ НА ВАШ КАНАЛ
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
@@ -109,12 +113,12 @@ class TradingBot:
         try:
             with open('price_comparison_results.json', 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             high_diff_tokens = []
             for token in data['data']:
                 if token['price_difference_percent'] > threshold:
                     high_diff_tokens.append(token)
-            
+
             return high_diff_tokens
         except Exception as e:
             print(f"Ошибка чтения файла при проверке высокой разницы: {e}")
@@ -125,28 +129,28 @@ class TradingBot:
         try:
             # Получаем все токены с разницей выше порога
             high_diff_tokens = self.get_all_tokens_with_high_difference(threshold)
-            
+
             if not high_diff_tokens:
                 return
-            
+
             # Получаем всех пользователей, которые отслеживают какие-либо токены
             all_users = set(token['chat_id'] for token in self.monitored_tokens["tokens"])
-            
+
             for token in high_diff_tokens:
                 symbol = token['symbol']
                 current_diff = token['price_difference_percent']
-                
+
                 # Создаем уникальный идентификатор для этого уведомления
                 notification_id = f"{symbol}_{current_diff:.1f}"
-                
+
                 # Проверяем, не отправляли ли мы уже это уведомление
                 if notification_id in self.high_diff_notified:
                     continue
-                
+
                 # Генерируем ссылки
                 spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
                 futures_url = f"https://www.mexc.com/futures/{symbol}"
-                
+
                 message = (
                     f"🚨 ВЫСОКАЯ РАЗНИЦА ЦЕН: {symbol}\n"
                     f"📊 Разница: {current_diff:.2f}%\n"
@@ -155,8 +159,8 @@ class TradingBot:
                     f"📈 Фандинг: {token['funding_rate']}\n"
                     f"🔗 Ссылки: <a href='{spot_url}'>Спот</a> | <a href='{futures_url}'>Фьючерс</a>"
                 )
-                
-                # Отправляем уведомление всем пользователям
+
+                # Отправляем уведомление ВСЕМ пользователям
                 for chat_id in all_users:
                     try:
                         await bot.send_message(
@@ -168,10 +172,25 @@ class TradingBot:
                         print(f"Отправлено уведомление о высокой разнице для {symbol} пользователю {chat_id}")
                     except Exception as e:
                         print(f"Ошибка отправки уведомления пользователю {chat_id}: {e}")
-                
+
+                # Отправляем уведомление в ТЕЛЕГРАМ-КАНАЛ
+                try:
+                    await bot.send_message(
+                        TELEGRAM_CHANNEL,
+                        message,
+                        parse_mode=ParseMode.HTML,
+                        disable_web_page_preview=True
+                    )
+                    print(f"✅ Уведомление о высокой разнице для {symbol} отправлено в канал {TELEGRAM_CHANNEL}")
+                except Exception as e:
+                    print(f"❌ Ошибка отправки уведомления в канал {TELEGRAM_CHANNEL}: {e}")
+                    print(f"Проверьте, что бот добавлен в канал как администратор")
+                    print(f"Для публичного канала используйте формат: @channel_username")
+                    print(f"Для приватного канала используйте цифровой ID: -1001234567890")
+
                 # Добавляем в список отправленных уведомлений
                 self.high_diff_notified.add(notification_id)
-                
+
         except Exception as e:
             print(f"Ошибка при проверке высокой разницы цен: {e}")
 
@@ -198,7 +217,7 @@ class TradingBot:
                         # Генерируем ссылки на спот и фьючерсы
                         spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
                         futures_url = f"https://www.mexc.com/futures/{symbol}"
-                        
+
                         message = (
                             f"⚠️ ВНИМАНИЕ: Разница цен для {symbol} упала до {current_diff:.2f}%\n"
                             f"Фандинг: {current_tokens[symbol]['funding_rate']}\n"
@@ -208,7 +227,7 @@ class TradingBot:
                         )
                         try:
                             await bot.send_message(
-                                chat_id, 
+                                chat_id,
                                 message,
                                 parse_mode=ParseMode.HTML,
                                 disable_web_page_preview=True
@@ -220,14 +239,14 @@ class TradingBot:
                     # Генерируем ссылки и для случая, когда токен пропал из списка
                     spot_url = f"https://www.mexc.com/ru-RU/exchange/{symbol}"
                     futures_url = f"https://www.mexc.com/futures/{symbol}"
-                    
+
                     message = (
                         f"❌ Токен {symbol} больше не имеет разницы цен > 0.4%\n"
                         f"Ссылки: <a href='{spot_url}'>Спот</a> | <a href='{futures_url}'>Фьючерс</a>"
                     )
                     try:
                         await bot.send_message(
-                            chat_id, 
+                            chat_id,
                             message,
                             parse_mode=ParseMode.HTML,
                             disable_web_page_preview=True
@@ -465,13 +484,13 @@ async def periodic_tasks():
         try:
             # Запускаем скрипты для обновления данных
             await trading_bot.run_scripts()
-            
+
             # Проверяем стандартные алерты (падение ниже 0.4%)
             await trading_bot.check_price_alerts()
-            
+
             # Проверяем высокую разницу (выше 7%)
             await trading_bot.check_high_difference_alerts(7.0)
-            
+
         except Exception as e:
             print(f"Ошибка в периодических задачах: {e}")
         await asyncio.sleep(60)
